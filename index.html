@@ -1,36 +1,135 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Display a map</title>
-  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Map Chat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.maptiler.com/maptiler-sdk-js/v3.0.1/maptiler-sdk.umd.min.js"></script>
   <link href="https://cdn.maptiler.com/maptiler-sdk-js/v3.0.1/maptiler-sdk.css" rel="stylesheet" />
   <style>
-    body {
+    html, body {
       margin: 0;
       padding: 0;
+      height: 100%;
+      font-family: sans-serif;
     }
 
     #map {
       position: absolute;
       top: 0;
-      bottom: 0;
+      bottom: 80px;
       width: 100%;
+    }
+
+    #chat {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 80px;
+      display: flex;
+      background: #fff;
+      border-top: 1px solid #ccc;
+      padding: 10px;
+      gap: 10px;
+      box-sizing: border-box;
+    }
+
+    #chat input {
+      flex: 1;
+      padding: 10px;
+      font-size: 16px;
+    }
+
+    #chat button {
+      padding: 10px 20px;
+      font-size: 16px;
+      background: #007bff;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+
+    #messages {
+      position: fixed;
+      bottom: 80px;
+      left: 0;
+      right: 0;
+      max-height: 200px;
+      overflow-y: auto;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px;
+      font-size: 14px;
     }
   </style>
 </head>
-
 <body>
   <div id="map"></div>
+  <div id="messages"></div>
+  <div id="chat">
+    <input id="messageInput" placeholder="Type a message..." />
+    <button onclick="sendMessage()">Send</button>
+  </div>
+
   <script>
     maptilersdk.config.apiKey = 'Ac1UVUxWl0WYiAANdAIc';
+
     const map = new maptilersdk.Map({
-      container: 'map', // container's id or the HTML element in which the SDK will render the map
+      container: 'map',
       style: maptilersdk.MapStyle.STREETS,
-      geolocate: maptilersdk.GeolocationType.POINT
+      geolocate: maptilersdk.GeolocationType.POINT,
+      zoom: 12
+    });
+
+    // WebSocket connection (update with your deployed Worker URL later)
+    const socket = new WebSocket("wss://your-worker-url.workers.dev");
+
+    socket.onopen = () => console.log("Connected to chat!");
+    socket.onmessage = (msg) => addMessage("Someone", msg.data);
+
+    function sendMessage() {
+      const input = document.getElementById("messageInput");
+      const message = input.value.trim();
+      if (!message) return;
+
+      addMessage("You", message);
+      socket.send(message);
+      input.value = "";
+    }
+
+    function addMessage(sender, message) {
+      const msgBox = document.getElementById("messages");
+      const msg = document.createElement("div");
+      msg.innerHTML = `<strong>${sender}:</strong> ${message}`;
+      msgBox.appendChild(msg);
+      msgBox.scrollTop = msgBox.scrollHeight;
+    }
+
+    // Get precise GPS location
+    navigator.geolocation.getCurrentPosition((pos) => {
+      const { latitude, longitude } = pos.coords;
+      map.setCenter([longitude, latitude]);
+      map.setZoom(15);
+
+      new maptilersdk.Marker({ color: "blue" })
+        .setLngLat([longitude, latitude])
+        .setPopup(new maptilersdk.Popup().setText("You"))
+        .addTo(map);
+    });
+
+    // Show some dummy users nearby
+    const nearbyUsers = [
+      { name: "Anna", coords: [16.628, 49.212], color: "red" },
+      { name: "Lukas", coords: [16.625, 49.214], color: "green" },
+      { name: "Tereza", coords: [16.623, 49.211], color: "orange" }
+    ];
+
+    nearbyUsers.forEach(user => {
+      new maptilersdk.Marker({ color: user.color })
+        .setLngLat(user.coords)
+        .setPopup(new maptilersdk.Popup().setText(user.name))
+        .addTo(map);
     });
   </script>
 </body>
-
 </html>
