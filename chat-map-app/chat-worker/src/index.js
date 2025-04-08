@@ -5,6 +5,7 @@ export class ChatRoom {
     this.env = env;
     this.sessions = []; // Stores active WebSocket connections
     this.userLocations = new Map(); // Stores user ID -> { lat, lon }
+    this.userNames = new Map(); // Stores user ID -> name
   }
 
   // Handles incoming HTTP requests (specifically WebSocket upgrades)
@@ -46,11 +47,15 @@ export class ChatRoom {
     ws.accept();
 
     // Send the new user their ID and current locations of others
-    const initialData = {
-      type: 'init',
-      userId: userId,
-      users: Array.from(this.userLocations.entries()).map(([id, loc]) => ({ id, ...loc }))
-    };
+      const initialData = {
+        type: 'init',
+        userId: userId,
+        users: Array.from(this.userLocations.entries()).map(([id, loc]) => ({
+          id,
+          ...loc,
+          name: this.userNames.get(id) || null
+        }))
+      };
     ws.send(JSON.stringify(initialData));
 
     ws.addEventListener('message', async (msg) => {
@@ -58,16 +63,21 @@ export class ChatRoom {
         const data = JSON.parse(msg.data);
 
         switch (data.type) {
+          case 'login':
+            if (typeof data.name === 'string') {
+              this.userNames.set(userId, data.name);
+            }
+            break;
+
           case 'updateLocation':
-            // Store user's location
             this.userLocations.set(userId, { lat: data.lat, lon: data.lon });
-            // Broadcast new location to others
             this.broadcast({
               type: 'userMoved',
               userId: userId,
               lat: data.lat,
               lon: data.lon,
-            }, ws); // Exclude sender
+              name: this.userNames.get(userId) || null
+            }, ws);
             break;
 
           case 'chatMessage':
@@ -79,10 +89,28 @@ export class ChatRoom {
             });
             break;
 
-          // Add cases for private messages later
-          // case 'privateMessage':
-          //   this.sendToUser(data.recipientId, { ... });
-          //   break;
+          case 'chatRequest':
+            this.sendToUser(data.recipientId, {
+              type: 'chatRequest',
+              senderId: userId,
+              senderName: this.userNames.get(userId) || null
+            });
+            break;
+
+          case 'chatAccept':
+            this.sendToUser(data.recipientId, {
+              type: 'chatAccept',
+              senderId: userId
+            });
+            break;
+
+          case 'privateMessage':
+            this.sendToUser(data.recipientId, {
+              type: 'privateMessage',
+              senderId: userId,
+              message: data.message
+            });
+            break;
 
           default:
             console.log('Unknown message type:', data.type);
@@ -134,12 +162,23 @@ export class ChatRoom {
       this.broadcast({
         type: 'userLeft',
         userId: userId,
+        name: this.userNames.get(userId) || null
       });
+      this.userNames.delete(userId);
     }
   }
 
-  // TODO: Implement sending to a specific user for private chat
-  // sendToUser(recipientId, message) { ... }
+  // Sends a message to a specific user by ID
+  sendToUser(recipientId, message) {
+    const session = this.sessions.find(s => s.userId === recipientId);
+    if (session) {
+      try {
+        session.ws.send(JSON.stringify(message));
+      } catch (err) {
+        console.error(`Failed to send to user ${recipientId}:`, err);
+      }
+    }
+  }
 }
 
 // Main Worker fetch handler - routes requests to the Durable Object
