@@ -7,6 +7,17 @@ export default defineConfig({
   optimizeDeps: {
     include: ['@maptiler/sdk'], // Explicitly include the SDK for pre-bundling
   },
+  build: {
+    sourcemap: true, // Enable source maps for debugging
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          maptiler: ['@maptiler/sdk'], // Separate chunk for MapTiler SDK
+          react: ['react', 'react-dom'] // Separate chunk for React
+        }
+      }
+    }
+  },
   server: {
     proxy: {
       // Proxy API requests to the deployed Cloudflare Worker

@@ -58,94 +58,20 @@ function App() {
       ws.current?.close();
     };
 
-    ws.current.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        console.log('App WebSocket Message Received:', message);
+    // The actual message handler will be set in a separate useEffect
+    // that depends on the handleWsMessage callback
+  }, [currentUser]); // Dependencies for connection logic
 
-        switch (message.type) {
-          case 'init':
-            setUserId(message.userId);
-            const initialUsers = new Map();
-            message.users?.forEach(user => {
-              if (user.id !== message.userId) { // Don't add self to connected users list
-                initialUsers.set(user.id, { ...user });
-              }
-            });
-            setConnectedUsers(initialUsers);
-            break;
 
-          case 'userMoved':
-            if (message.userId !== userId) { // Don't track self movement here
-              setConnectedUsers(prev => new Map(prev).set(message.userId, {
-                id: message.userId,
-                name: message.name,
-                lat: message.lat,
-                lon: message.lon
-              }));
-            }
-            break;
-
-          case 'userLeft':
-            setConnectedUsers(prev => {
-              const newMap = new Map(prev);
-              newMap.delete(message.userId);
-              return newMap;
-            });
-            // Also close any active chat window with this user
-            setActiveChats(prev => {
-               const newChats = new Map(prev);
-               newChats.delete(message.userId);
-               return newChats;
-            });
-            break;
-
-          case 'chatRequest':
-             // Avoid duplicate requests
-             setChatRequests(prev => {
-                if (prev.some(req => req.senderId === message.senderId)) {
-                    return prev;
-                }
-                return [...prev, { senderId: message.senderId, senderName: message.senderName }];
-             });
-             break;
-
-          case 'chatAccept':
-             // Open a chat window with the user who accepted
-             console.log(`Chat accepted by ${message.senderName} (${message.senderId})`);
-             setActiveChats(prev => new Map(prev).set(message.senderId, {
-                name: message.senderName || `User ${message.senderId.substring(0,4)}`,
-                messages: [] // Start with empty messages
-             }));
-             break;
-
-          case 'privateMessage':
-             // Add message to the correct chat window
-             setActiveChats(prev => {
-                const newChats = new Map(prev);
-                const chat = newChats.get(message.senderId);
-                if (chat) {
-                   chat.messages.push({ senderId: message.senderId, senderName: message.senderName, message: message.message });
-                } else {
-                   // If chat window isn't open, maybe open it automatically or notify user?
-                   // For now, just log it if chat isn't active
-                   console.log(`Received private message from ${message.senderName} but chat window not open.`);
-                   // Optionally auto-open chat:
-                   // newChats.set(message.senderId, { name: message.senderName, messages: [message] });
-                }
-                return newChats;
-             });
-             break;
-
-          default:
-            console.log('App ignoring WebSocket message type:', message.type);
-        }
-      } catch (err) {
-        console.error('Failed to parse App WebSocket message:', err);
-      }
-    };
-  }, [currentUser, userId]); // Dependencies for connection logic
-
+  // --- Send Message Helper ---
+  const sendWsMessage = useCallback((message) => {
+    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify(message));
+      console.log('App Sent WS Message:', message);
+    } else {
+      console.error('Cannot send WS message - WebSocket not open.');
+    }
+  }, []);
 
   // --- Send Position Update When Ready ---
   useEffect(() => {
@@ -162,29 +88,107 @@ function App() {
   }, [isConnected, currentUserPosition, currentUser, sendWsMessage]); // Depend on connection status and position
 
 
-  // Effect to connect WebSocket when user logs in
+  // Effect to connect WebSocket when user logs in and handle cleanup
   useEffect(() => {
     if (currentUser && !ws.current) {
-      connectWebSocket();
+      connectWebSocket(); // Use the callback defined above
     }
-    // Cleanup on logout
+
+    // Cleanup function: Close WebSocket on logout or component unmount
     return () => {
-      if (!currentUser) {
-        ws.current?.close();
+      if (ws.current) {
+         console.log("Closing WebSocket connection on cleanup/logout.");
+         ws.current.close();
+         ws.current = null; // Ensure ref is cleared
       }
     };
-  }, [currentUser, connectWebSocket]);
+  }, [currentUser, connectWebSocket]); // Dependencies include the callback
 
 
-  // --- Send Message Helper ---
-  const sendWsMessage = useCallback((message) => {
-    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-      ws.current.send(JSON.stringify(message));
-      console.log('App Sent WS Message:', message);
-    } else {
-      console.error('Cannot send WS message - WebSocket not open.');
+  // Define the WebSocket onmessage handler separately
+  const handleWsMessage = useCallback((event) => {
+     try {
+       const message = JSON.parse(event.data);
+       console.log('App WebSocket Message Received:', message);
+
+       switch (message.type) {
+         case 'init':
+           setUserId(message.userId);
+           const initialUsers = new Map();
+           message.users?.forEach(user => {
+             if (user.id !== message.userId) {
+               initialUsers.set(user.id, { ...user });
+             }
+           });
+           setConnectedUsers(initialUsers);
+           break;
+         // ... (keep other cases: userMoved, userLeft, chatRequest, chatAccept, privateMessage) ...
+         case 'userMoved':
+           if (message.userId !== userId) {
+             setConnectedUsers(prev => new Map(prev).set(message.userId, {
+               id: message.userId,
+               name: message.name,
+               lat: message.lat,
+               lon: message.lon
+             }));
+           }
+           break;
+         case 'userLeft':
+           setConnectedUsers(prev => {
+             const newMap = new Map(prev);
+             newMap.delete(message.userId);
+             return newMap;
+           });
+           setActiveChats(prev => {
+              const newChats = new Map(prev);
+              newChats.delete(message.userId);
+              return newChats;
+           });
+           break;
+         case 'chatRequest':
+            setChatRequests(prev => {
+               if (prev.some(req => req.senderId === message.senderId)) {
+                   return prev;
+               }
+               return [...prev, { senderId: message.senderId, senderName: message.senderName }];
+            });
+            break;
+         case 'chatAccept':
+            setActiveChats(prev => new Map(prev).set(message.senderId, {
+               name: message.senderName || `User ${message.senderId.substring(0,4)}`,
+               messages: []
+            }));
+            break;
+         case 'privateMessage':
+            setActiveChats(prev => {
+               const newChats = new Map(prev);
+               const chat = newChats.get(message.senderId);
+               if (chat) {
+                  chat.messages.push({ senderId: message.senderId, senderName: message.senderName, message: message.message });
+               } else {
+                  console.log(`Received private message from ${message.senderName} but chat window not open.`);
+               }
+               return newChats;
+            });
+            break;
+         default:
+           console.log('App ignoring WebSocket message type:', message.type);
+       }
+     } catch (err) {
+       console.error('Failed to parse App WebSocket message:', err);
+     }
+  }, [userId]); // Include userId dependency for comparisons inside cases
+
+  // Effect to attach the message handler when ws connection is established
+  useEffect(() => {
+    if (ws.current) {
+      ws.current.onmessage = handleWsMessage;
     }
-  }, []);
+    // This effect depends on the handler function itself
+  }, [handleWsMessage]);
+
+
+  // --- Send Message Helper is defined above ---
 
 
   // --- Callback from MapComponent ---
@@ -304,16 +308,6 @@ function App() {
          )}
 
          {/* Render the Map component, passing necessary props */}
-         <MapComponent
-           currentUser={currentUser}
-           connectedUsers={connectedUsers} // Pass connected users data
-           // sendWsMessage={sendWsMessage} // Map no longer sends messages directly
-           onRequestChat={handleRequestChat} // Pass function to initiate chat request
-           userId={userId} // Pass own user ID
-           onPositionUpdate={handlePositionUpdate} // Pass callback for position updates
-         />
-
-         {/* Wrap MapComponent in Suspense */}
          <Suspense fallback={<div>Loading map...</div>}>
            <MapComponent
              currentUser={currentUser}

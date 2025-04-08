@@ -1,21 +1,21 @@
-import React, { useRef, useEffect, useState, useCallback, memo } from 'react'; // Added memo
+import React, { useRef, useEffect, useState, memo } from 'react'; // Added memo, removed unused useCallback
 import * as maptilersdk from '@maptiler/sdk';
 import '@maptiler/sdk/dist/maptiler-sdk.css';
 import './Map.css';
 
-// Helper function to generate a random color for markers (can be moved to a utils file)
-const getRandomColor = () => {
-  const letters = '0123456789ABCDEF';
-  let color = '#';
-  for (let i = 0; i < 6; i++) {
-    color += letters[Math.floor(Math.random() * 16)];
-  }
-  return color;
-}; // <-- Added missing closing brace
+// Wrap in React.memo to prevent unnecessary re-renders
+const MapComponent = memo(({ currentUser, connectedUsers, onRequestChat, userId, onPositionUpdate }) => {
 
+  // Moved helper function inside the component
+  const getRandomColor = () => {
+    const letters = '0123456789ABCDEF';
+    let color = '#';
+    for (let i = 0; i < 6; i++) {
+      color += letters[Math.floor(Math.random() * 16)];
+    }
+    return color;
+  };
 
-// Removed React.memo wrapper as a test for the initialization error
-const MapComponent = ({ currentUser, connectedUsers, onRequestChat, userId, onPositionUpdate }) => {
   const mapContainer = useRef(null);
   const map = useRef(null);
   // No longer need ws ref here, managed by App.jsx
@@ -188,6 +188,6 @@ const MapComponent = ({ currentUser, connectedUsers, onRequestChat, userId, onPo
        <div ref={mapContainer} className="map" />
      </div>
    );
- }; // End of component
+ }); // End of component with memo wrapper
 
  export default MapComponent;
