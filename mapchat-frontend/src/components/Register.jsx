@@ -23,8 +23,18 @@ function Register({ onRegisterSuccess }) { // Assume onRegisterSuccess is passed
     }
 
     try {
-      // Note: Adjust the URL if your worker is deployed or running on a different port
-      const response = await fetch('/api/register', { // Relative URL assumes proxy or same origin
+      // Construct the absolute URL using the environment variable
+      const workerApiUrl = import.meta.env.VITE_WORKER_API_URL || ''; // Fallback to empty string if not set
+      if (!workerApiUrl) {
+         console.error("Worker API URL is not configured. Set VITE_WORKER_API_URL.");
+         setError("Application configuration error.");
+         setLoading(false);
+         return;
+      }
+      const apiUrl = `${workerApiUrl}/api/register`;
+      console.log("Register Fetch URL:", apiUrl); // Log the URL being used
+
+      const response = await fetch(apiUrl, { // Use the absolute URL
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
