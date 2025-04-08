@@ -90,7 +90,19 @@
       geolocate: maptilersdk.GeolocationType.POINT,
     });
 
-    let socket;
+    function login() {
+      const usernameInput = document.getElementById("usernameInput");
+      myUsername = usernameInput.value.trim();
+      if (!myUsername) {
+        alert("Please enter your name.");
+        return;
+      }
+      document.getElementById("login").style.display = "none";
+      document.getElementById("map").style.display = "block";
+      connectWebSocket();
+      startLocationWatch(); // Request location after login
+    }
+
     let myUserId = null;
     const userMarkers = new Map(); // Stores userId -> { marker, popup }
     let myMarker = null;
