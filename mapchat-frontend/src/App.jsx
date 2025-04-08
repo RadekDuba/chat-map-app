@@ -12,6 +12,7 @@ function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [userId, setUserId] = useState(null); // Own user ID from server
   const [connectedUsers, setConnectedUsers] = useState(new Map()); // Map<userId, {id, name, lat, lon}>
+  const [currentUserPosition, setCurrentUserPosition] = useState(null); // Store position from MapComponent [lng, lat]
   const [chatRequests, setChatRequests] = useState([]); // Array of { senderId, senderName }
   const [activeChats, setActiveChats] = useState(new Map()); // Map<userId, { name: string, messages: [] }>
 
@@ -142,6 +143,22 @@ function App() {
     };
   }, [currentUser, userId]); // Dependencies for connection logic
 
+
+  // --- Send Position Update When Ready ---
+  useEffect(() => {
+    // Only send if connected, position is known, and user info is available
+    if (isConnected && currentUserPosition && currentUser) {
+      sendWsMessage({
+        type: 'updateLocation',
+        lon: currentUserPosition[0],
+        lat: currentUserPosition[1],
+        name: currentUser.username
+      });
+    }
+    // Note: We might want to throttle this if position updates very frequently
+  }, [isConnected, currentUserPosition, currentUser, sendWsMessage]); // Depend on connection status and position
+
+
   // Effect to connect WebSocket when user logs in
   useEffect(() => {
     if (currentUser && !ws.current) {
@@ -164,6 +181,12 @@ function App() {
     } else {
       console.error('Cannot send WS message - WebSocket not open.');
     }
+  }, []);
+
+
+  // --- Callback from MapComponent ---
+  const handlePositionUpdate = useCallback((position) => {
+    setCurrentUserPosition(position); // Update position state in App
   }, []);
 
 
@@ -281,9 +304,10 @@ function App() {
          <MapComponent
            currentUser={currentUser}
            connectedUsers={connectedUsers} // Pass connected users data
-           sendWsMessage={sendWsMessage} // Pass function to send WS messages (e.g., location)
+           // sendWsMessage={sendWsMessage} // Map no longer sends messages directly
            onRequestChat={handleRequestChat} // Pass function to initiate chat request
            userId={userId} // Pass own user ID
+           onPositionUpdate={handlePositionUpdate} // Pass callback for position updates
          />
 
          {/* Render Active Private Chat Windows */}

@@ -15,7 +15,7 @@ const getRandomColor = () => {
 
 
 // Memoize the component to prevent unnecessary re-renders if props haven't changed significantly
-const MapComponent = memo(({ currentUser, connectedUsers, onRequestChat, userId, sendWsMessage }) => {
+const MapComponent = memo(({ currentUser, connectedUsers, onRequestChat, userId, onPositionUpdate }) => { // Removed sendWsMessage, added onPositionUpdate
   const mapContainer = useRef(null);
   const map = useRef(null);
   // No longer need ws ref here, managed by App.jsx
@@ -65,15 +65,9 @@ const MapComponent = memo(({ currentUser, connectedUsers, onRequestChat, userId,
       console.log('Map Geolocation update:', newPos);
       setUserPosition(newPos); // Update local state for own marker
 
-      // Send location update via WebSocket using the function passed from App
-      // Check if position is valid before sending
-      if (newPos && newPos.length === 2 && typeof newPos[0] === 'number' && typeof newPos[1] === 'number') {
-         sendWsMessage({
-           type: 'updateLocation',
-           lon: newPos[0],
-           lat: newPos[1],
-           name: currentUser.username // Send name along with location
-         });
+      // Pass position update up to App component
+      if (onPositionUpdate && newPos && newPos.length === 2 && typeof newPos[0] === 'number' && typeof newPos[1] === 'number') {
+        onPositionUpdate(newPos);
       }
     };
 
@@ -115,7 +109,7 @@ const MapComponent = memo(({ currentUser, connectedUsers, onRequestChat, userId,
      // Cleanup watcher on component unmount
      return () => navigator.geolocation.clearWatch(watchId);
 
-  }, [sendWsMessage, currentUser.username]); // Add dependencies
+  }, [onPositionUpdate, currentUser.username]); // Updated dependencies
 
 
    // --- Update Current User Marker ---
@@ -185,7 +179,7 @@ const MapComponent = memo(({ currentUser, connectedUsers, onRequestChat, userId,
        }
      });
 
-   }, [connectedUsers, onRequestChat]); // Rerun when connectedUsers changes
+   }, [connectedUsers, onRequestChat, userId]); // Added userId dependency for the check inside
 
 
    return (
