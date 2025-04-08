@@ -88,9 +88,8 @@
     let myMarker = null;
 
     function connectWebSocket() {
-      // Use ws://localhost:8787 for local dev with `wrangler dev`
-      // Replace with your deployed worker's wss:// URL later
-      const wsUrl = `ws://${window.location.hostname}:8787/websocket`;
+      // Use the deployed worker URL
+      const wsUrl = `wss://chat-worker.radek-duba.workers.dev/websocket`;
       console.log(`Connecting to WebSocket: ${wsUrl}`);
       socket = new WebSocket(wsUrl);
 
