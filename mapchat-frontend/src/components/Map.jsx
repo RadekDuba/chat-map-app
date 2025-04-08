@@ -28,9 +28,12 @@ const MapComponent = memo(({ currentUser, connectedUsers, onRequestChat, userId,
   // No longer need isConnected or userId state here, passed as props
 
   // --- MapTiler API Key ---
-  // IMPORTANT: In a real application, store this securely, not directly in code.
-  // Consider environment variables or a configuration service.
-  const apiKey = 'CtR4vA69Nx2GqBokcSXa';
+  // Read from environment variable (set in Cloudflare Pages settings)
+  const apiKey = import.meta.env.VITE_MAPTILER_API_KEY;
+  if (!apiKey) {
+    console.error("MapTiler API key is missing! Set VITE_MAPTILER_API_KEY environment variable.");
+    // Optionally render an error message or fallback
+  }
 
   // --- Initialize Map ---
   useEffect(() => {
