@@ -35,7 +35,8 @@ export class ChatRoom {
         webSocket: client,
       });
 
-    } else {
+    } else if (url.pathname === '/') {
+      return new Response('Welcome to the Map Chat Worker!', { status: 200, headers: { 'Content-Type': 'text/html' } });
       return new Response('Not found', { status: 404 });
     }
   }
