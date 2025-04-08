@@ -34,6 +34,19 @@
 	 */
 
 	/**
+	 * D1 Databases
+	 * https://developers.cloudflare.com/d1/get-started/
+	 */
+	"d1_databases": [
+		{
+			"binding": "DB", // Binding name used in the Worker code
+			"database_name": "mapchat-db", // Name of the D1 database
+			"database_id": "b37eec7b-0595-45c3-aa50-5f95f8a2e7c7", // Will be filled by Wrangler automatically on first deploy/migration
+			"preview_database_id": "" // Optional: for local development previews
+		}
+	],
+
+	/**
 	 * Static Assets
 	 * https://developers.cloudflare.com/workers/static-assets/binding/
 	 */

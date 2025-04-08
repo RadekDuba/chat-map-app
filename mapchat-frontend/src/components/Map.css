@@ -1,0 +1,13 @@
+.map-wrap {
+  position: relative;
+  width: 100%;
+  height: 60vh; /* Adjust height as needed */
+  margin-top: 20px;
+  border: 1px solid #ccc;
+}
+
+.map {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+}
