@@ -14,8 +14,8 @@ const getRandomColor = () => {
 }; // <-- Added missing closing brace
 
 
-// Memoize the component to prevent unnecessary re-renders if props haven't changed significantly
-const MapComponent = memo(({ currentUser, connectedUsers, onRequestChat, userId, onPositionUpdate }) => { // Removed sendWsMessage, added onPositionUpdate
+// Removed React.memo wrapper as a test for the initialization error
+const MapComponent = ({ currentUser, connectedUsers, onRequestChat, userId, onPositionUpdate }) => {
   const mapContainer = useRef(null);
   const map = useRef(null);
   // No longer need ws ref here, managed by App.jsx
@@ -188,6 +188,6 @@ const MapComponent = memo(({ currentUser, connectedUsers, onRequestChat, userId,
        <div ref={mapContainer} className="map" />
      </div>
    );
- }); // End of memoized component
+ }; // End of component
 
  export default MapComponent;
