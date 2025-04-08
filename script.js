@@ -20,8 +20,10 @@ function login() {
 }
 
 let myUserId = null;
-const userMarkers = new Map(); // Stores userId -> { marker, popup }
+let myUsername = null; // Added to store the logged-in user's name
+const userMarkers = new Map(); // Stores userId -> { marker, popup, name }
 let myMarker = null;
+let currentChatTarget = { userId: null, name: null }; // To track the current chat partner
 
 function connectWebSocket() {
   // Use the deployed worker URL
@@ -32,8 +34,11 @@ function connectWebSocket() {
   socket.onopen = () => {
     console.log("WebSocket connected!");
     addSystemMessage("Connected to chat server.");
-    // Start watching location once connected
-    startLocationWatch();
+    // Send login info
+    if (myUsername && myUserId) { // myUserId should be set in 'init' before this runs ideally, but check just in case
+        socket.send(JSON.stringify({ type: 'login', name: myUsername, userId: myUserId }));
+    }
+    // Location watch is started from login() now
   };
 
   socket.onmessage = (event) => {
@@ -43,31 +48,52 @@ function connectWebSocket() {
 
       switch (data.type) {
         case 'init':
-          myUserId = data.userId;
-          addSystemMessage(`You are User ${myUserId.substring(0, 6)}...`);
-          // Add markers for existing users
+          myUserId = data.userId; // Server assigns the ID
+          addSystemMessage(`You are ${myUsername} (${myUserId.substring(0, 6)}...)`);
+          // Send login info with assigned userId
+           socket.send(JSON.stringify({ type: 'login', name: myUsername, userId: myUserId }));
+          // Add markers for existing users (assuming server sends name)
           data.users.forEach(user => {
             if (user.id !== myUserId) {
-              updateUserMarker(user.id, user.lat, user.lon);
+              updateUserMarker(user.id, user.lat, user.lon, user.name || `User ${user.id.substring(0,6)}`); // Use name if available
             }
           });
           break;
         case 'userMoved':
+          // A new user joined or an existing user moved
           if (data.userId !== myUserId) {
-            updateUserMarker(data.userId, data.lat, data.lon);
+             // Assuming server sends name on userMoved/userJoined
+            updateUserMarker(data.userId, data.lat, data.lon, data.name || `User ${data.userId.substring(0,6)}`);
           }
           break;
         case 'userLeft':
+          // User left
           if (data.userId !== myUserId) {
+            const userData = userMarkers.get(data.userId);
+            const leftName = userData ? userData.name : `User ${data.userId.substring(0, 6)}`;
             removeUserMarker(data.userId);
-            addSystemMessage(`User ${data.userId.substring(0, 6)}... left.`);
+            addSystemMessage(`${leftName} left.`);
+            // If chatting with the user who left, close the chat window
+            if (currentChatTarget.userId === data.userId) {
+                closeChatWindow();
+            }
           }
           break;
-        case 'chatMessage':
-          const senderName = data.senderId === myUserId ? "You" : `User ${data.senderId.substring(0, 6)}...`;
-          addChatMessage(senderName, data.message);
-          // Optional: Highlight marker of sender?
+        case 'privateMessage':
+          // Only display if the message is part of the current chat
+          if (currentChatTarget.userId && (data.senderId === currentChatTarget.userId || data.senderId === myUserId)) {
+              const senderDisplayName = data.senderId === myUserId ? "You" : currentChatTarget.name; // Use the stored name
+              addChatMessage(senderDisplayName, data.message);
+          } else {
+              // Optional: Indicate a new message from someone else? (e.g., highlight their marker)
+              console.log(`Received private message from ${data.senderId}, but not currently chatting with them.`);
+          }
           break;
+        // Keep 'chatMessage' for potential global/system messages if needed, or remove if only private chat exists
+        // case 'chatMessage':
+        //   const senderName = data.senderId === myUserId ? "You" : `User ${data.senderId.substring(0, 6)}...`;
+        //   addChatMessage(senderName, data.message);
+        //   break;
         case 'error':
           addSystemMessage(`Server Error: ${data.message}`, true);
           break;
@@ -102,20 +128,24 @@ function connectWebSocket() {
 }
 
 function sendMessage() {
-  if (!socket || socket.readyState !== WebSocket.OPEN || !myUserId) {
-    addSystemMessage("Not connected, cannot send message.", true);
+  if (!socket || socket.readyState !== WebSocket.OPEN || !myUserId || !currentChatTarget.userId) {
+    addSystemMessage("Cannot send message. Not connected or no chat active.", true);
     return;
   }
   const input = document.getElementById("messageInput");
   const message = input.value.trim();
   if (!message) return;
 
-  socket.send(JSON.stringify({
-    type: 'chatMessage',
-    message: message
-  }));
-  // Don't add locally, wait for broadcast confirmation
-  // addChatMessage("You", message);
+  const messageData = {
+    type: 'privateMessage',
+    recipientId: currentChatTarget.userId,
+    message: message,
+    senderName: myUsername // Send sender's name
+  };
+
+  socket.send(JSON.stringify(messageData));
+  // Add message locally immediately for responsiveness
+  addChatMessage("You", message);
   input.value = "";
 }
 
@@ -127,10 +157,12 @@ function addChatMessage(sender, message) {
   msgBox.scrollTop = msgBox.scrollHeight; // Scroll to bottom
 }
 
- function addSystemMessage(message, isError = false) {
-  const msgBox = document.getElementById("messages");
+function addSystemMessage(message, isError = false) {
+  // Decide where to put system messages - maybe a separate log area?
+  // For now, adding to the main chat window if open, otherwise console.
+  const msgBox = document.getElementById("messages"); // Assumes chat window is open
   const msg = document.createElement("div");
-  msg.textContent = message;
+  msg.textContent = `[System] ${message}`;
   msg.style.fontStyle = 'italic';
   if (isError) {
     msg.style.color = 'red';
@@ -139,31 +171,51 @@ function addChatMessage(sender, message) {
   msgBox.scrollTop = msgBox.scrollHeight;
 }
 
-function updateUserMarker(userId, lat, lon) {
+function updateUserMarker(userId, lat, lon, name) { // Added name parameter
   const shortId = userId.substring(0, 6);
+  const displayName = name || `User ${shortId}`; // Fallback if name is missing
+
   if (userMarkers.has(userId)) {
     // Update existing marker
-    const { marker } = userMarkers.get(userId);
-    marker.setLngLat([lon, lat]);
+    const existingData = userMarkers.get(userId);
+    existingData.marker.setLngLat([lon, lat]);
+    // Update popup content if name changes (though unlikely with current setup)
+    const popupContent = createPopupContent(userId, displayName);
+    existingData.popup.setHTML(popupContent);
+    existingData.name = displayName; // Update stored name
   } else {
     // Create new marker
-    console.log(`Adding marker for ${shortId} at ${lat}, ${lon}`);
+    console.log(`Adding marker for ${displayName} at ${lat}, ${lon}`);
+
+    const popupContent = createPopupContent(userId, displayName);
     const popup = new maptilersdk.Popup({ closeButton: false, closeOnClick: false })
-      .setText(userId === myUserId ? "You" : `${name} (${shortId})`);
+        .setHTML(popupContent); // Use setHTML for button
 
     const marker = new maptilersdk.Marker({ color: getRandomColor() })
       .setLngLat([lon, lat])
       .setPopup(popup)
       .addTo(map);
 
-    // Add click listener for chat (basic implementation)
-    marker.getElement().addEventListener('click', () => {
-      openChatWindow(userId, name);
-    });
-
-    userMarkers.set(userId, { marker, popup });
-    addSystemMessage(`User ${shortId}... joined.`);
+    // Store marker, popup, and name
+    userMarkers.set(userId, { marker, popup, name: displayName });
+    addSystemMessage(`${displayName} joined.`);
   }
+}
+
+// Helper to create popup HTML with a chat button
+function createPopupContent(userId, name) {
+    const title = userId === myUserId ? "You" : name;
+    let content = `<div><strong>${title}</strong></div>`;
+    if (userId !== myUserId) {
+        // Use onclick that passes parameters correctly
+        content += `<button onclick="initiateChat('${userId}', '${name.replace(/'/g, "\\'")}')">Chat</button>`; // Escape single quotes in name
+    }
+    return content;
+}
+
+// Renamed function to avoid conflict with DOM event handlers
+function initiateChat(userId, name) {
+    openChatWindow(userId, name);
 }
 
 function removeUserMarker(userId) {
@@ -177,12 +229,16 @@ function removeUserMarker(userId) {
 
 function updateMyMarker(lat, lon) {
     if (!myMarker) {
+        const popupContent = createPopupContent(myUserId, "You"); // Use helper for consistency
         myMarker = new maptilersdk.Marker({ color: "blue" })
             .setLngLat([lon, lat])
-            .setPopup(new maptilersdk.Popup().setText("You"))
+            .setPopup(new maptilersdk.Popup({ closeButton: false, closeOnClick: false }).setHTML(popupContent))
             .addTo(map);
     } else {
         myMarker.setLngLat([lon, lat]);
+        // Optionally update popup if needed, though "You" shouldn't change
+        // const popupContent = createPopupContent(myUserId, "You");
+        // myMarker.getPopup().setHTML(popupContent);
     }
 }
 
@@ -255,15 +311,37 @@ function getRandomColor() {
   return color;
 }
 
-// Placeholder for opening a chat window
-function openChatWindow(userId) {
-    // TODO: Implement the actual chat window UI
-    addSystemMessage(`Clicked on User ${userId.substring(0, 6)}... Chat UI not implemented yet.`);
-    // Maybe focus the input and add a prefix like "@User123: "?
+// Opens the dedicated chat window
+function openChatWindow(userId, name) {
+    if (userId === myUserId) return; // Don't open chat with self
+
+    currentChatTarget = { userId, name };
+    console.log(`Opening chat with ${name} (${userId})`);
+
+    document.getElementById("chatWith").textContent = name;
+    document.getElementById("messages").innerHTML = ''; // Clear previous messages
+    document.getElementById("chatWindow").style.display = "block"; // Show the window
+
+    // Optional: Add a close button functionality
+    // if (!document.getElementById('closeChatButton')) {
+    //     const closeButton = document.createElement('button');
+    //     closeButton.id = 'closeChatButton';
+    //     closeButton.textContent = 'Close';
+    //     closeButton.onclick = closeChatWindow;
+    //     closeButton.style.marginLeft = '10px';
+    //     document.getElementById('chatHeader').appendChild(closeButton);
+    // }
+
     const input = document.getElementById("messageInput");
-    input.value = `@${userId.substring(0, 6)}: `;
+    input.value = ""; // Clear input
     input.focus();
 }
 
-// Initial connection
-connectWebSocket();
+function closeChatWindow() {
+    currentChatTarget = { userId: null, name: null };
+    document.getElementById("chatWindow").style.display = "none";
+    document.getElementById("messages").innerHTML = ''; // Clear messages on close
+}
+
+// Don't connect WebSocket immediately, wait for login
+// connectWebSocket();
