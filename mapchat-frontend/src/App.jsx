@@ -1,9 +1,12 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'; // Import lazy and Suspense
 import Login from './components/Login';
 import Register from './components/Register';
-import MapComponent from './components/Map';
-import PrivateChat from './components/PrivateChat'; // Import the new component
+// import MapComponent from './components/Map'; // Import dynamically below
+import PrivateChat from './components/PrivateChat';
 import './App.css';
+
+// Dynamically import MapComponent
+const MapComponent = lazy(() => import('./components/Map'));
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -309,6 +312,17 @@ function App() {
            userId={userId} // Pass own user ID
            onPositionUpdate={handlePositionUpdate} // Pass callback for position updates
          />
+
+         {/* Wrap MapComponent in Suspense */}
+         <Suspense fallback={<div>Loading map...</div>}>
+           <MapComponent
+             currentUser={currentUser}
+             connectedUsers={connectedUsers}
+             onRequestChat={handleRequestChat}
+             userId={userId}
+             onPositionUpdate={handlePositionUpdate}
+           />
+         </Suspense>
 
          {/* Render Active Private Chat Windows */}
          <div className="active-chats-container">
