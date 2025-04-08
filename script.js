@@ -79,14 +79,32 @@ function connectWebSocket() {
             }
           }
           break;
+        case 'chatRequest':
+          // Incoming chat request
+          const requesterName = data.senderName || `User ${data.senderId.substring(0, 6)}`;
+          const accept = confirm(`${requesterName} wants to chat with you. Accept?`);
+          if (accept) {
+            currentChatTarget = { userId: data.senderId, name: requesterName };
+            document.getElementById("chatWith").textContent = requesterName;
+            document.getElementById("messages").innerHTML = '';
+            document.getElementById("chatWindow").style.display = "block";
+            socket.send(JSON.stringify({ type: 'chatAccept', recipientId: data.senderId }));
+          }
+          break;
+
+        case 'chatAccept':
+          // Our chat request was accepted
+          if (data.senderId === currentChatTarget.userId) {
+            document.getElementById("chatWith").textContent = currentChatTarget.name;
+            document.getElementById("messages").innerHTML = '';
+            document.getElementById("chatWindow").style.display = "block";
+          }
+          break;
+
         case 'privateMessage':
-          // Only display if the message is part of the current chat
           if (currentChatTarget.userId && (data.senderId === currentChatTarget.userId || data.senderId === myUserId)) {
-              const senderDisplayName = data.senderId === myUserId ? "You" : currentChatTarget.name; // Use the stored name
+              const senderDisplayName = data.senderId === myUserId ? "You" : currentChatTarget.name;
               addChatMessage(senderDisplayName, data.message);
-          } else {
-              // Optional: Indicate a new message from someone else? (e.g., highlight their marker)
-              console.log(`Received private message from ${data.senderId}, but not currently chatting with them.`);
           }
           break;
         // Keep 'chatMessage' for potential global/system messages if needed, or remove if only private chat exists
@@ -215,7 +233,13 @@ function createPopupContent(userId, name) {
 
 // Renamed function to avoid conflict with DOM event handlers
 function initiateChat(userId, name) {
-    openChatWindow(userId, name);
+    currentChatTarget = { userId, name };
+    socket.send(JSON.stringify({
+      type: 'chatRequest',
+      recipientId: userId,
+      senderName: myUsername
+    }));
+    addSystemMessage(`Chat request sent to ${name}`);
 }
 
 function removeUserMarker(userId) {
