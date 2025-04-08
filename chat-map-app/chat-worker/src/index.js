@@ -25,21 +25,22 @@ export class ChatRoom {
       const [client, server] = new WebSocketPair();
 
       // Store the server-side socket and user ID
-      this.sessions.push({ ws: server, userId: userId });
+      this.sessions.push({ ws: server, userId: userId }); // Store server-side socket
 
       // Handle WebSocket events on the server side
-      await this.handleSession(server, userId);
+      // No need to await this, let it run in the background after returning the 101 response
+      this.handleSession(server, userId); // Removed await
 
       // Return the client-side socket to the connecting user
-      return new Response(null, {
+      return new Response(null, { // <--- Return 101 Switching Protocols
         status: 101,
-        webSocket: client,
+        webSocket: client, // Attach the client socket
       });
 
-    } else if (url.pathname === '/') {
-      return new Response('Welcome to the Map Chat Worker!', { status: 200, headers: { 'Content-Type': 'text/html' } });
-      return new Response('Not found', { status: 404 });
     }
+    // If the request wasn't for /websocket (which shouldn't happen if routed correctly), return 404
+    console.error(`Durable Object received unexpected path: ${url.pathname}`);
+    return new Response('Not found inside Durable Object', { status: 404 });
   }
 
   // Handles an individual WebSocket connection
@@ -337,43 +338,135 @@ async function handleLogin(request, env) {
 }
 
 
+// --- CORS Headers Helper ---
+// Define allowed origins. Be specific in production for security.
+// Use '*' for development/testing only if necessary.
+const allowedOrigins = [
+  'https://chat-map-app.pages.dev', // Your deployed frontend
+  'http://localhost:5173',         // Local Vite dev server (adjust port if needed)
+  'http://localhost:5174',         // Vite dev server (alternative port)
+];
+
+function addCorsHeaders(origin) {
+  const headers = new Headers();
+  if (allowedOrigins.includes(origin)) {
+    headers.set('Access-Control-Allow-Origin', origin);
+    headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS'); // Add methods you use
+    headers.set('Access-Control-Allow-Headers', 'Content-Type'); // Add headers your frontend sends
+  } else {
+    // Optionally handle disallowed origins, or just don't add headers
+    console.warn(`Origin ${origin} not allowed.`);
+  }
+  return headers;
+}
+
 // --- Main Worker Fetch Handler ---
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const origin = request.headers.get('Origin');
 
-    try { // Add a top-level try block for API routes
+    // Handle CORS Preflight Requests (OPTIONS) for API routes
+    if (request.method === 'OPTIONS' && (url.pathname === '/api/register' || url.pathname === '/api/login')) {
+      const corsHeaders = addCorsHeaders(origin);
+      // Allow preflight requests to proceed
+      corsHeaders.set('Access-Control-Max-Age', '86400'); // Cache preflight response for 1 day
+      return new Response(null, { status: 204, headers: corsHeaders });
+    }
+
+    let response; // Variable to hold the response
+
+    try {
       // Route API requests
       if (url.pathname === '/api/register' && request.method === 'POST') {
-        return await handleRegister(request, env); // Ensure await if handler is async
+        response = await handleRegister(request, env);
+      } else if (url.pathname === '/api/login' && request.method === 'POST') {
+        response = await handleLogin(request, env);
+      } else if (url.pathname === '/websocket') {
+        // Handle WebSocket upgrade requests - CORS doesn't apply directly here in the same way,
+        // but the initial HTTP request might be subject to origin checks depending on browser/setup.
+        // The Durable Object itself handles the WS connection.
+        const durableObjectId = env.CHAT_ROOM.idFromName('global-chat-room');
+        const durableObjectStub = env.CHAT_ROOM.get(durableObjectId);
+        response = await durableObjectStub.fetch(request); // Forward the request
+      } else if (url.pathname === '/') {
+         response = new Response('MapChat API Worker is running.', { status: 200 });
+      } else {
+         response = new Response('Not Found', { status: 404 });
       }
-      if (url.pathname === '/api/login' && request.method === 'POST') {
-        return await handleLogin(request, env); // Ensure await if handler is async
-      }
+
     } catch (err) {
-      // Catch any unhandled errors from API handlers and return JSON
-      console.error(`Unhandled API Error (${url.pathname}):`, err);
-      return new Response(JSON.stringify({ error: 'An internal server error occurred.', details: err.message }), {
+      // Catch any unhandled errors and create a JSON error response
+      console.error(`Unhandled Worker Error (${url.pathname}):`, err);
+      response = new Response(JSON.stringify({ error: 'An internal server error occurred.', details: err.message }), {
         status: 500,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' } // Ensure JSON content type
       });
     }
 
-    // Route WebSocket upgrade requests to the Durable Object (outside the API try-catch)
-    if (url.pathname === '/websocket') {
-       // Use a single global instance of the ChatRoom Durable Object
-       // All users will connect to the same room instance.
-       // For scalability, you might shard users into different rooms based on location, etc.
-       const durableObjectId = env.CHAT_ROOM.idFromName('global-chat-room');
-       const durableObjectStub = env.CHAT_ROOM.get(durableObjectId);
-       return durableObjectStub.fetch(request); // Forward the request
+    // Clone the response to add CORS headers if it's not already a CORS response
+    if (response && !(response.status === 204)) { // Don't modify preflight OPTIONS response
+        const newHeaders = new Headers(response.headers);
+        const corsHeaders = addCorsHeaders(origin);
+        corsHeaders.forEach((value, key) => {
+            newHeaders.set(key, value);
+        });
+
+        // Ensure Content-Type is set if missing and body exists (important for JSON errors)
+        if (!newHeaders.has('Content-Type') && response.body) {
+            // Attempt to guess or default
+            try {
+                JSON.parse(await response.clone().text()); // Check if body is JSON
+                newHeaders.set('Content-Type', 'application/json');
+            } catch (e) {
+                // Default or leave unset if not JSON
+            }
+        }
+
+        response = new Response(response.body, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: newHeaders
+        });
     }
 
-    // Handle other requests (e.g., root path or not found)
-    if (url.pathname === '/') {
-       return new Response('MapChat API Worker is running.', { status: 200 });
-    }
 
-    return new Response('Not Found', { status: 404 });
+    return response || new Response('Not Found', { status: 404 }); // Fallback if no response generated
+
+    // --- Old Logic ---
+    // try { // Add a top-level try block for API routes
+    //   // Route API requests
+    //   if (url.pathname === '/api/register' && request.method === 'POST') {
+    //     return await handleRegister(request, env); // Ensure await if handler is async
+    //   }
+    //   if (url.pathname === '/api/login' && request.method === 'POST') {
+    //     return await handleLogin(request, env); // Ensure await if handler is async
+    //   }
+    // } catch (err) {
+    //   // Catch any unhandled errors from API handlers and return JSON
+    //   console.error(`Unhandled API Error (${url.pathname}):`, err);
+    //   return new Response(JSON.stringify({ error: 'An internal server error occurred.', details: err.message }), {
+    //     status: 500,
+    //     headers: { 'Content-Type': 'application/json' }
+    //   });
+    // }
+
+    // // Route WebSocket upgrade requests to the Durable Object (outside the API try-catch)
+    // if (url.pathname === '/websocket') {
+    //    // Use a single global instance of the ChatRoom Durable Object
+    //    // All users will connect to the same room instance.
+    //    // For scalability, you might shard users into different rooms based on location, etc.
+    //    const durableObjectId = env.CHAT_ROOM.idFromName('global-chat-room');
+    //    const durableObjectStub = env.CHAT_ROOM.get(durableObjectId);
+    //    return durableObjectStub.fetch(request); // Forward the request
+    // }
+
+    // // Handle other requests (e.g., root path or not found)
+    // if (url.pathname === '/') {
+    //    return new Response('MapChat API Worker is running.', { status: 200 });
+    // }
+
+    // return new Response('Not Found', { status: 404 });
+    // --- End Old Logic ---
   },
 };

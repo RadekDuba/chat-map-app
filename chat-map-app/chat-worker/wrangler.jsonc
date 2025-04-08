@@ -67,7 +67,11 @@
 			{ "name": "CHAT_ROOM", "class_name": "ChatRoom" }
 		]
 	},
+	// Add migrations block as recommended by Wrangler for DOs
 	"migrations": [
-		{ "tag": "v1", "new_sqlite_classes": ["ChatRoom"] }
+		{
+			"tag": "v1", // Use a tag for this migration state
+			"new_classes": [ "ChatRoom" ] // Specify the DO class name
+		}
 	]
 }
