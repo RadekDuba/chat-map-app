@@ -19,11 +19,15 @@ function App() {
   const connectWebSocket = useCallback(() => {
     if (!currentUser || ws.current) return; // Only connect if logged in and not already connected/connecting
 
-    // Construct WebSocket URL dynamically based on current page location
-    // This ensures it goes through the Vite proxy correctly
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/websocket`;
-    console.log('App connecting WebSocket to:', wsUrl); // Should now show ws://localhost:5173/websocket (or similar)
+    // Construct WebSocket URL using the worker API URL environment variable
+    const workerApiUrl = import.meta.env.VITE_WORKER_API_URL || '';
+    if (!workerApiUrl) {
+       console.error("Worker API URL is not configured. Cannot connect WebSocket.");
+       return; // Don't attempt connection if base URL is missing
+    }
+    // Replace http/https with ws/wss for the WebSocket protocol
+    const wsUrl = workerApiUrl.replace(/^http/, 'ws') + '/websocket';
+    console.log('App connecting WebSocket to:', wsUrl); // Should now point to the worker domain
     ws.current = new WebSocket(wsUrl);
 
     ws.current.onopen = () => {
